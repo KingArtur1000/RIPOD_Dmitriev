@@ -26,6 +26,7 @@ class ASAP_ALAP_App:
         root.configure(bg=BG_MAIN)
 
         self.G = nx.DiGraph()
+        # Тот самый граф с картинки
         self.default_edges = "1-7, 2-8, 3-9, 4-10, 5-9, 6-12, 7-10, 8-10, 9-11, 10-13, 11-13, 12-13, 13-14"
         
         self.schedule_mode = tk.StringVar(value="ASAP")
@@ -106,7 +107,6 @@ class ASAP_ALAP_App:
         self.edges_entry.pack(fill="x")
         self.edges_entry.insert("1.0", self.default_edges)
         
-        # --- ИСПРАВЛЕНИЕ ДЛЯ ВСТАВКИ ТЕКСТА ---
         # Контекстное меню (ПКМ)
         self.context_menu = tk.Menu(self.edges_entry, tearoff=0)
         self.context_menu.add_command(label="Вырезать", command=lambda: self.edges_entry.event_generate("<<Cut>>"))
@@ -118,17 +118,13 @@ class ASAP_ALAP_App:
         def show_context_menu(event):
             self.context_menu.post(event.x_root, event.y_root)
 
-        self.edges_entry.bind("<Button-3>", show_context_menu) # ПКМ Windows/Linux
-        self.edges_entry.bind("<Button-2>", show_context_menu) # ПКМ Mac
-        
-        # Явные горячие клавиши
+        self.edges_entry.bind("<Button-3>", show_context_menu)
+        self.edges_entry.bind("<Button-2>", show_context_menu)
         self.edges_entry.bind("<Control-v>", lambda e: self.edges_entry.event_generate("<<Paste>>"))
         self.edges_entry.bind("<Command-v>", lambda e: self.edges_entry.event_generate("<<Paste>>"))
         
-        # Кнопка вставки (для надежности)
         paste_btn = ttk.Button(input_frame, text="📋 Вставить из буфера", command=self.paste_from_clipboard)
         paste_btn.pack(fill="x", pady=(5, 0))
-        # -------------------------------------
 
         btn_frame = ttk.Frame(input_frame)
         btn_frame.pack(fill="x", pady=(10, 0))
@@ -210,7 +206,6 @@ class ASAP_ALAP_App:
         self.G.add_edges_from(edges)
 
         if not nx.is_directed_acyclic_graph(self.G):
-            # Если граф некорректный, просто не перерисовываем его, чтобы не было спама ошибками
             return
 
         # --- 1. РАСЧЕТ ASAP ---
@@ -270,10 +265,17 @@ class ASAP_ALAP_App:
                 y = (i - (count - 1) / 2.0) * -1.5
                 pos[node] = (x, y)
 
+        # --- ИСПРАВЛЕНИЕ ПОЛОЖЕНИЯ ПОДПИСЕЙ ---
+        # Находим самую высокую точку (максимальный Y) среди всех узлов графа
+        global_max_y = max([y for x, y in pos.values()]) if pos else 0
+        # Ставим подписи на 1.2 единицы выше самого высокого узла
+        label_y = global_max_y + 1.2
+        
         for lvl in range(max_level + 1):
             self.ax.axvline(x=lvl, color="#dee2e6", linestyle="--", zorder=0, linewidth=1.5)
-            self.ax.text(lvl, 1.2, f"Шаг {lvl}", ha="center", va="bottom", 
-                         fontsize=11, color=FG_MUTED, fontweight="bold")
+            self.ax.text(lvl, label_y, f"Шаг {lvl}", ha="center", va="bottom", 
+                         fontsize=12, color=FG_MUTED, fontweight="bold")
+        # -----------------------------------------
 
         nx.draw_networkx_edges(self.G, pos, ax=self.ax, edge_color="#6c757d", 
                                width=2, arrowsize=20, arrows=True, node_size=900)
@@ -290,7 +292,8 @@ class ASAP_ALAP_App:
                                 font_color="#000000", font_weight="bold")
 
         self.ax.set_axis_off()
-        self.ax.margins(x=0.05, y=0.15)
+        # Увеличили отступ сверху (y=0.25), чтобы текст не прилипал к краю окна
+        self.ax.margins(x=0.05, y=0.25) 
         self.fig.tight_layout()
         self.canvas.draw_idle()
 
