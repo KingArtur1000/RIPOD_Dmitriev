@@ -7,16 +7,16 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 
-# ---------- Цветовая схема ----------
-BG      = "#181825"
-PANEL   = "#1e1e2e"
-PANEL2  = "#313244"
-FG      = "#cdd6f4"
-MUTED   = "#9399b2"
-ACCENT  = "#89b4fa"
-ACCENT2 = "#f38ba8"
-ACCENT3 = "#a6e3a1"
-GRID    = "#45475a"
+# ---------- Светлая цветовая схема ----------
+BG_MAIN   = "#f4f6f9"  # Общий фон
+BG_PANEL  = "#ffffff"  # Фон панелей
+FG_MAIN   = "#212529"  # Темный текст
+FG_MUTED  = "#6c757d"  # Серый текст
+ACCENT    = "#0d6efd"  # Синий акцент
+ACCENT2   = "#dc3545"  # Красный (сетевой закон)
+ACCENT3   = "#198754"  # Зеленый (значения)
+BORDER    = "#dee2e6"  # Границы
+GRAPH_BG  = "#ffffff"  # Фон графика
 
 
 # ---------- Формулы ----------
@@ -36,10 +36,10 @@ def R_net(a, n, c):
 class AmdahlApp:
     def __init__(self, root):
         self.root = root
-        root.title("Закон Амдала — моделирование параллельного ускорения")
+        root.title("Лабораторная 1: Закон Амдала")
         self._center(1280, 760)
         root.minsize(1000, 600)
-        root.configure(bg=BG)
+        root.configure(bg=BG_MAIN)
 
         # Переменные состояния
         self.mode   = tk.StringVar(value="both")
@@ -66,24 +66,28 @@ class AmdahlApp:
             s.theme_use("clam")
         except tk.TclError:
             pass
-        s.configure(".", background=PANEL, foreground=FG, fieldbackground=PANEL2)
-        s.configure("TFrame", background=PANEL)
-        s.configure("TLabel", background=PANEL, foreground=FG, font=("Segoe UI", 10))
-        s.configure("Title.TLabel", font=("Segoe UI", 13, "bold"), foreground=ACCENT)
-        s.configure("Sub.TLabel", font=("Segoe UI", 9), foreground=MUTED)
-        s.configure("Value.TLabel", font=("Consolas", 10), foreground=ACCENT3)
-        s.configure("TRadiobutton", background=PANEL, foreground=FG, focuscolor=PANEL)
-        s.map("TRadiobutton", background=[("active", PANEL2)])
-        s.configure("TCheckbutton", background=PANEL, foreground=FG, focuscolor=PANEL)
-        s.map("TCheckbutton", background=[("active", PANEL2)])
-        s.configure("TScale", background=PANEL, troughcolor=PANEL2)
-        s.configure("TLabelframe", background=PANEL, foreground=ACCENT, bordercolor=GRID)
-        s.configure("TLabelframe.Label", background=PANEL, foreground=ACCENT)
-        s.configure("TSeparator", background=GRID)
+        s.configure(".", background=BG_PANEL, foreground=FG_MAIN, fieldbackground=BG_MAIN)
+        s.configure("TFrame", background=BG_PANEL)
+        s.configure("Main.TFrame", background=BG_MAIN)
+        s.configure("TLabel", background=BG_PANEL, foreground=FG_MAIN, font=("Segoe UI", 10))
+        s.configure("Title.TLabel", font=("Segoe UI", 14, "bold"), foreground=ACCENT)
+        s.configure("Sub.TLabel", font=("Segoe UI", 9), foreground=FG_MUTED)
+        s.configure("Value.TLabel", font=("Consolas", 10, "bold"), foreground=ACCENT3)
+        
+        s.configure("TRadiobutton", background=BG_PANEL, foreground=FG_MAIN, focuscolor=BG_PANEL)
+        s.map("TRadiobutton", background=[("active", BG_MAIN)])
+        
+        s.configure("TCheckbutton", background=BG_PANEL, foreground=FG_MAIN, focuscolor=BG_PANEL)
+        s.map("TCheckbutton", background=[("active", BG_MAIN)])
+        
+        s.configure("TScale", background=BG_PANEL, troughcolor=BG_MAIN)
+        s.configure("TLabelframe", background=BG_PANEL, foreground=FG_MAIN, bordercolor=BORDER)
+        s.configure("TLabelframe.Label", background=BG_PANEL, foreground=FG_MAIN, font=("Segoe UI", 10, "bold"))
+        s.configure("TSeparator", background=BORDER)
 
     # -------- Общий каркас --------
     def _build_ui(self):
-        main = ttk.Frame(self.root, padding=12)
+        main = ttk.Frame(self.root, padding=12, style="Main.TFrame")
         main.pack(fill="both", expand=True)
         main.columnconfigure(0, weight=0, minsize=350)
         main.columnconfigure(1, weight=1)
@@ -128,9 +132,9 @@ class AmdahlApp:
 
         info = ttk.LabelFrame(parent, text=" Результаты ", padding=8)
         info.pack(fill="both", expand=True, pady=(8, 0))
-        self.info_text = tk.Text(info, height=12, bg=PANEL2, fg=FG, bd=0,
+        self.info_text = tk.Text(info, height=12, bg=BG_MAIN, fg=FG_MAIN, bd=1, relief="solid",
                                  font=("Consolas", 9), wrap="word",
-                                 padx=8, pady=6, insertbackground=FG)
+                                 padx=8, pady=8, highlightthickness=0)
         self.info_text.pack(fill="both", expand=True)
         self.info_text.configure(state="disabled")
 
@@ -162,9 +166,9 @@ class AmdahlApp:
 
     # -------- Область графика --------
     def _build_plot(self, parent):
-        self.fig = Figure(figsize=(8, 6), dpi=100, facecolor=PANEL2)
+        self.fig = Figure(figsize=(8, 6), dpi=100, facecolor=GRAPH_BG)
         self.ax  = self.fig.add_subplot(111)
-        self.ax.set_facecolor(PANEL2)
+        self.ax.set_facecolor(GRAPH_BG)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -174,9 +178,9 @@ class AmdahlApp:
         toolbar.pack(fill="x")
 
     def _style_axes(self):
-        self.ax.tick_params(colors=FG, labelsize=9)
+        self.ax.tick_params(colors=FG_MAIN, labelsize=9)
         for spine in self.ax.spines.values():
-            spine.set_color(GRID)
+            spine.set_color(BORDER)
 
     # -------- Отрисовка --------
     def update_plot(self, *args):
@@ -193,9 +197,9 @@ class AmdahlApp:
 
         # Палитра для семейства кривых
         try:
-            cmap = matplotlib.colormaps["viridis"]
+            cmap = matplotlib.colormaps["Blues"]
         except Exception:
-            cmap = matplotlib.cm.get_cmap("viridis")
+            cmap = matplotlib.cm.get_cmap("Blues")
 
         def draw(x, y, color, label, ls="-", lw=2.2):
             ax.plot(x, y, color=color, linestyle=ls, linewidth=lw, label=label)
@@ -203,7 +207,7 @@ class AmdahlApp:
         if self.family.get():
             family_a = [0.5, 0.75, 0.9, 0.99]
             for i, av in enumerate(family_a):
-                col = cmap(0.15 + 0.7 * i / (len(family_a) - 1))
+                col = cmap(0.4 + 0.5 * i / (len(family_a) - 1))
                 if mode in ("basic", "both"):
                     draw(n_plot, R_basic(av, n_plot), col,
                          f"Базовый, a={av}", "--", 1.6)
@@ -218,17 +222,17 @@ class AmdahlApp:
                 draw(n_plot, R_net(a, n_plot, c), ACCENT2,
                      f"Сетевой: a={a:.3f}, c={c:.4f}", "-", 2.6)
 
-        ax.set_xlabel("Число процессоров n", color=FG, fontsize=10)
-        ax.set_ylabel("Ускорение  R(n)",      color=FG, fontsize=10)
-        ax.set_title("Моделирование закона Амдала", color=FG, fontsize=11, pad=10)
-        ax.grid(True, which="both", linestyle=":", alpha=0.35, color=GRID)
+        ax.set_xlabel("Число процессоров n", color=FG_MAIN, fontsize=10)
+        ax.set_ylabel("Ускорение  R(n)",      color=FG_MAIN, fontsize=10)
+        ax.set_title("Моделирование закона Амдала", color=FG_MAIN, fontsize=11, pad=10)
+        ax.grid(True, which="both", linestyle=":", alpha=0.6, color=BORDER)
         ax.set_xscale("log" if self.logx.get() else "linear")
         ax.set_xlim(nmin, nmax)
 
-        leg = ax.legend(loc="best", facecolor=PANEL, edgecolor=GRID,
-                        fontsize=8, framealpha=0.9)
+        leg = ax.legend(loc="best", facecolor=BG_PANEL, edgecolor=BORDER,
+                        fontsize=9, framealpha=0.9)
         for t in leg.get_texts():
-            t.set_color(FG)
+            t.set_color(FG_MAIN)
 
         self.canvas.draw_idle()
         self._update_info(a, c, nmax, mode)
