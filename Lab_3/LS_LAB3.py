@@ -4,8 +4,8 @@ import networkx as nx
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-import numpy as np
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import random
 
 # ---------- Светлая цветовая схема ----------
 BG_MAIN   = "#f4f6f9"
@@ -74,17 +74,15 @@ class ListSchedulingApp:
         
         right = ttk.Frame(main, style="Main.TFrame")
         right.grid(row=0, column=1, sticky="nsew")
-        right.rowconfigure(0, weight=1) # Граф
-        right.rowconfigure(1, weight=1) # Диаграмма Ганта
+        right.rowconfigure(0, weight=1)
+        right.rowconfigure(1, weight=1)
 
         self._build_controls(left)
         
-        # Правая часть: Граф сверху
         graph_frame = ttk.LabelFrame(right, text=" Граф зависимостей ", padding=5)
         graph_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         self._build_graph_area(graph_frame)
         
-        # Правая часть: Диаграмма Ганта снизу
         gantt_frame = ttk.LabelFrame(right, text=" Диаграмма Ганта (Распределение по процессорам) ", padding=5)
         gantt_frame.grid(row=1, column=0, sticky="nsew")
         self._build_gantt_area(gantt_frame)
@@ -93,7 +91,6 @@ class ListSchedulingApp:
         ttk.Label(parent, text="Списковое планирование", style="Title.TLabel").pack(anchor="w")
         ttk.Label(parent, text="List Scheduling Strategy", style="Sub.TLabel").pack(anchor="w", pady=(0, 10))
 
-        # Настройки
         cfg_frame = ttk.LabelFrame(parent, text=" Параметры системы ", padding=10)
         cfg_frame.pack(fill="x", pady=5)
         
@@ -109,7 +106,6 @@ class ListSchedulingApp:
         
         ttk.Button(proc_frame, text="Применить", command=self.update_schedule).pack(side="left", padx=10)
 
-        # Ввод графа
         input_frame = ttk.LabelFrame(parent, text=" Входные данные (Граф) ", padding=10)
         input_frame.pack(fill="x", pady=10)
         
@@ -130,9 +126,13 @@ class ListSchedulingApp:
         
         btn_frame = ttk.Frame(input_frame)
         btn_frame.pack(fill="x", pady=(10, 0))
+        
+        # --- НОВАЯ КНОПКА ГЕНЕРАЦИИ ---
+        ttk.Button(btn_frame, text="🎲 Сгенерировать", command=self.generate_random_graph).pack(side="left", padx=(0, 5))
+        # ------------------------------
+        
         ttk.Button(btn_frame, text="Построить план", command=self.update_schedule).pack(side="left", fill="x", expand=True)
 
-        # Анализ
         info_frame = ttk.LabelFrame(parent, text=" Результаты планирования ", padding=10)
         info_frame.pack(fill="both", expand=True, pady=(5, 0))
         
@@ -141,6 +141,32 @@ class ListSchedulingApp:
                                  padx=8, pady=8, highlightthickness=1, highlightbackground=BORDER)
         self.info_text.pack(fill="both", expand=True)
         self.info_text.configure(state="disabled")
+
+    def generate_random_graph(self):
+        """Генерация случайного DAG (направленного ациклического графа)"""
+        n = random.randint(7, 12) # Случайное количество вершин
+        nodes = [str(i) for i in range(1, n + 1)]
+        edges = []
+        
+        # Генерируем ребра только от узлов с меньшим индексом к большему.
+        # Это гарантирует, что граф будет ациклическим.
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                # Вероятность связи ~35%
+                if random.random() < 0.35:
+                    edges.append((nodes[i], nodes[j]))
+        
+        # Проверка на связность: если получился граф без ребер, добавим пару
+        if not edges:
+            edges.append((nodes[0], nodes[1]))
+            edges.append((nodes[1], nodes[-1]))
+
+        # Преобразуем в строку формата "1-2, 2-3"
+        edge_str = ", ".join([f"{u}-{v}" for u, v in edges])
+        
+        self.edges_entry.delete("1.0", "end")
+        self.edges_entry.insert("1.0", edge_str)
+        self.update_schedule()
 
     def _build_graph_area(self, parent):
         self.fig_graph = Figure(figsize=(6, 3), dpi=100, facecolor=GRAPH_BG)
@@ -183,7 +209,6 @@ class ListSchedulingApp:
         p = self.processors.get()
 
         # 1. Вычисление приоритетов (Bottom Level - критический путь до конца)
-        # Вес каждой операции = 1
         priorities = {}
         for node in reversed(list(nx.topological_sort(self.G))):
             succs = list(self.G.successors(node))
@@ -193,20 +218,13 @@ class ListSchedulingApp:
                 priorities[node] = 1 + max(priorities[s] for s in succs)
 
         # 2. Симуляция List Scheduling
-        # processor_free_time: когда освободится каждый процессор
         proc_free_time = [0] * p
-        # assigned_proc: какой процессор выполняет задачу
         assigned_proc = {}
-        # start_time: время старта задачи
         start_time = {}
-        # end_time: время завершения задачи
         end_time = {}
-        # scheduled_tasks: множество выполненных/запланированных задач
         scheduled_tasks = set()
         
-        # Пока не запланированы все задачи
         while len(scheduled_tasks) < len(self.G.nodes()):
-            # Находим готовые задачи (все предшественники уже запланированы)
             ready_tasks = []
             for node in self.G.nodes():
                 if node in scheduled_tasks: continue
@@ -215,28 +233,21 @@ class ListSchedulingApp:
                     ready_tasks.append(node)
             
             if not ready_tasks:
-                break # Ошибка в графе (цикл), но мы уже проверили, что его нет
+                break 
                 
-            # Сортируем готовые задачи по убыванию приоритета (и по ID для стабильности)
             ready_tasks.sort(key=lambda x: (-priorities[x], str(x)))
-
-            # Находим самый ранний момент, когда освободится хотя бы один процессор
             min_free = min(proc_free_time)
             
-            # Пытаемся назначить задачи на свободные процессоры
             for i in range(p):
-                if proc_free_time[i] <= min_free: # Процессор свободен в этот момент
-                    if not ready_tasks: break # Все задачи распределены
+                if proc_free_time[i] <= min_free:
+                    if not ready_tasks: break
                     
-                    # Берем самую приоритетную задачу
                     task = ready_tasks.pop(0)
-                    
-                    # Время старта = максимум из (когда освободился процессор) и (когда закончились предшественники)
                     preds = list(self.G.predecessors(task))
                     dep_time = max([end_time[pr] for pr in preds]) if preds else 0
                     
                     st = max(proc_free_time[i], dep_time)
-                    et = st + 1 # Время выполнения = 1
+                    et = st + 1
                     
                     proc_free_time[i] = et
                     assigned_proc[task] = i
@@ -244,7 +255,6 @@ class ListSchedulingApp:
                     end_time[task] = et
                     scheduled_tasks.add(task)
 
-        # 3. Отрисовка
         self.draw_graph(assigned_proc, p)
         self.draw_gantt(assigned_proc, start_time, end_time, p)
         self.update_info(priorities, start_time, end_time, assigned_proc, p)
@@ -252,7 +262,6 @@ class ListSchedulingApp:
     def draw_graph(self, assigned_proc, p):
         self.ax_graph.clear()
         
-        # Позиционирование (слоями)
         levels = {}
         for node in nx.topological_sort(self.G):
             preds = list(self.G.predecessors(node))
@@ -270,7 +279,6 @@ class ListSchedulingApp:
             for i, node in enumerate(nodes):
                 pos[node] = (lvl, (i - (count - 1) / 2.0) * -1.5)
 
-        # Отрисовка графа (цвет = процессор)
         cmap = matplotlib.colormaps["tab10"]
         colors = [cmap(assigned_proc[n] % 10) for n in self.G.nodes()]
         
@@ -291,23 +299,20 @@ class ListSchedulingApp:
         for task, proc in assigned_proc.items():
             st = start_time[task]
             dur = end_time[task] - st
-            # Рисуем прямоугольник: (x_start, y_start), width, height
             color = cmap(proc % 10)
             self.ax_gantt.barh(proc, dur, left=st, height=0.6, color=color, edgecolor="#212529", linewidth=1)
-            # Текст внутри прямоугольника
             self.ax_gantt.text(st + dur/2, proc, str(task), ha="center", va="center", color="white", fontweight="bold")
 
         self.ax_gantt.set_yticks(range(p))
         self.ax_gantt.set_yticklabels([f"Процессор {i}" for i in range(p)])
         self.ax_gantt.set_xlabel("Время")
         
-        # Красивые границы
         self.ax_gantt.spines['top'].set_visible(False)
         self.ax_gantt.spines['right'].set_visible(False)
         
         max_time = max(end_time.values()) if end_time else 1
         self.ax_gantt.set_xlim(0, max_time + 1)
-        self.ax_gantt.set_xticks(range(max_time + 2))
+        self.ax_gantt.set_xticks(range(int(max_time) + 2))
         
         self.fig_gantt.tight_layout()
         self.canvas_gantt.draw_idle()

@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.patches import Patch
 
 # ---------- Светлая цветовая схема ----------
 BG_MAIN   = "#f4f6f9"
@@ -12,7 +13,6 @@ BG_PANEL  = "#ffffff"
 FG_MAIN   = "#212529"
 FG_MUTED  = "#6c757d"
 ACCENT    = "#0d6efd"
-ACCENT2   = "#198754"
 BORDER    = "#dee2e6"
 GRAPH_BG  = "#ffffff"
 
@@ -21,12 +21,11 @@ class ASAP_ALAP_App:
     def __init__(self, root):
         self.root = root
         root.title("Лабораторная 2: Планирование ASAP и ALAP")
-        self._center(1350, 850)
-        root.minsize(1050, 650)
+        self._center(1400, 900)
+        root.minsize(1050, 700)
         root.configure(bg=BG_MAIN)
 
         self.G = nx.DiGraph()
-        # Тот самый граф с картинки
         self.default_edges = "1-7, 2-8, 3-9, 4-10, 5-9, 6-12, 7-10, 8-10, 9-11, 10-13, 11-13, 12-13, 13-14"
         
         self.schedule_mode = tk.StringVar(value="ASAP")
@@ -78,11 +77,14 @@ class ASAP_ALAP_App:
         
         right = ttk.Frame(main, style="Main.TFrame")
         right.grid(row=0, column=1, sticky="nsew")
-        right.rowconfigure(0, weight=3)
-        right.rowconfigure(1, weight=1)
+        # Настраиваем строки для правой части (Граф, Гантт, Таблица)
+        right.rowconfigure(0, weight=3) # Граф
+        right.rowconfigure(1, weight=2) # Гантт
+        right.rowconfigure(2, weight=1) # Таблица
 
         self._build_controls(left)
         self._build_graph_area(right)
+        self._build_gantt_area(right)
         self._build_table_area(right)
 
     def _build_controls(self, parent):
@@ -109,12 +111,9 @@ class ASAP_ALAP_App:
         
         # Контекстное меню (ПКМ)
         self.context_menu = tk.Menu(self.edges_entry, tearoff=0)
-        self.context_menu.add_command(label="Вырезать", command=lambda: self.edges_entry.event_generate("<<Cut>>"))
-        self.context_menu.add_command(label="Копировать", command=lambda: self.edges_entry.event_generate("<<Copy>>"))
         self.context_menu.add_command(label="Вставить", command=lambda: self.edges_entry.event_generate("<<Paste>>"))
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="Выделить все", command=lambda: self.edges_entry.tag_add("sel", "1.0", "end"))
-
+        self.context_menu.add_command(label="Очистить", command=lambda: self.edges_entry.delete("1.0", "end"))
+        
         def show_context_menu(event):
             self.context_menu.post(event.x_root, event.y_root)
 
@@ -149,26 +148,33 @@ class ASAP_ALAP_App:
             messagebox.showwarning("Буфер обмена", "Буфер обмена пуст или не содержит текста.")
 
     def _build_graph_area(self, parent):
-        frame = ttk.Frame(parent, padding=10)
-        frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
+        frame = ttk.Frame(parent, padding=5)
+        frame.grid(row=0, column=0, sticky="nsew", pady=(0, 5))
         
-        self.fig = Figure(figsize=(6, 4), dpi=100, facecolor=GRAPH_BG)
+        self.fig = Figure(figsize=(6, 3), dpi=100, facecolor=GRAPH_BG)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_facecolor(GRAPH_BG)
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def _build_gantt_area(self, parent):
+        frame = ttk.LabelFrame(parent, text=" Диаграмма Ганта (с выделением критического пути) ", padding=5)
+        frame.grid(row=1, column=0, sticky="nsew", pady=5)
         
-        toolbar = NavigationToolbar2Tk(self.canvas, frame, pack_toolbar=False)
-        toolbar.update()
-        toolbar.pack(fill="x")
+        self.fig_gantt = Figure(figsize=(6, 2.5), dpi=100, facecolor=GRAPH_BG)
+        self.ax_gantt = self.fig_gantt.add_subplot(111)
+        self.ax_gantt.set_facecolor(GRAPH_BG)
+        
+        self.canvas_gantt = FigureCanvasTkAgg(self.fig_gantt, master=frame)
+        self.canvas_gantt.get_tk_widget().pack(fill="both", expand=True)
 
     def _build_table_area(self, parent):
-        frame = ttk.LabelFrame(parent, text=" Последовательно-параллельный план ", padding=10)
-        frame.grid(row=1, column=0, sticky="nsew")
+        frame = ttk.LabelFrame(parent, text=" Последовательно-параллельный план ", padding=5)
+        frame.grid(row=2, column=0, sticky="nsew", pady=(5, 0))
         
         columns = ("level", "operations", "count")
-        self.tree = ttk.Treeview(frame, columns=columns, show="headings", height=5)
+        self.tree = ttk.Treeview(frame, columns=columns, show="headings", height=4)
         self.tree.heading("level", text="Временной шаг (Ярус)")
         self.tree.heading("operations", text="Операции (выполняются параллельно)")
         self.tree.heading("count", text="Кол-во")
@@ -240,6 +246,7 @@ class ASAP_ALAP_App:
             schedule.setdefault(lvl, []).append(node)
 
         self.draw_graph(active_levels)
+        self.draw_gantt(levels_asap, levels_alap, slack)
         self.update_table(schedule)
         self.update_info(levels_asap, levels_alap, slack, current_mode)
 
@@ -265,37 +272,82 @@ class ASAP_ALAP_App:
                 y = (i - (count - 1) / 2.0) * -1.5
                 pos[node] = (x, y)
 
-        # --- ИСПРАВЛЕНИЕ ПОЛОЖЕНИЯ ПОДПИСЕЙ ---
-        # Находим самую высокую точку (максимальный Y) среди всех узлов графа
         global_max_y = max([y for x, y in pos.values()]) if pos else 0
-        # Ставим подписи на 1.2 единицы выше самого высокого узла
         label_y = global_max_y + 1.2
         
         for lvl in range(max_level + 1):
             self.ax.axvline(x=lvl, color="#dee2e6", linestyle="--", zorder=0, linewidth=1.5)
             self.ax.text(lvl, label_y, f"Шаг {lvl}", ha="center", va="bottom", 
-                         fontsize=12, color=FG_MUTED, fontweight="bold")
-        # -----------------------------------------
+                         fontsize=10, color=FG_MUTED, fontweight="bold")
 
         nx.draw_networkx_edges(self.G, pos, ax=self.ax, edge_color="#6c757d", 
-                               width=2, arrowsize=20, arrows=True, node_size=900)
+                               width=2, arrowsize=20, arrows=True, node_size=700)
 
         unique_levels = sorted(set(levels.values()))
         cmap = matplotlib.colormaps["Blues"]
         denom = max(1, max(unique_levels))
         colors = [cmap(0.3 + 0.5 * (levels[n] / denom)) for n in self.G.nodes()]
 
-        nx.draw_networkx_nodes(self.G, pos, ax=self.ax, node_size=900, 
+        nx.draw_networkx_nodes(self.G, pos, ax=self.ax, node_size=700, 
                                node_color=colors, edgecolors="#212529", linewidths=1.5)
         
-        nx.draw_networkx_labels(self.G, pos, ax=self.ax, font_size=13, 
+        nx.draw_networkx_labels(self.G, pos, ax=self.ax, font_size=11, 
                                 font_color="#000000", font_weight="bold")
 
         self.ax.set_axis_off()
-        # Увеличили отступ сверху (y=0.25), чтобы текст не прилипал к краю окна
-        self.ax.margins(x=0.05, y=0.25) 
+        self.ax.margins(x=0.05, y=0.15) 
         self.fig.tight_layout()
         self.canvas.draw_idle()
+
+    def draw_gantt(self, levels_asap, levels_alap, slack):
+        self.ax_gantt.clear()
+        if not levels_asap: return
+
+        try:
+            sorted_nodes = sorted(self.G.nodes(), key=lambda x: int(x) if str(x).isdigit() else str(x))
+        except:
+            sorted_nodes = sorted(self.G.nodes())
+
+        y_positions = range(len(sorted_nodes))
+
+        for i, node in enumerate(sorted_nodes):
+            asap_start = levels_asap[node]
+            s = slack[node]
+            
+            # Основная задача (выполнение по ASAP)
+            if s == 0:
+                # Критический путь — красный
+                self.ax_gantt.barh(i, 1, left=asap_start, color="#dc3545", edgecolor="#a71d2a", height=0.6, zorder=3)
+            else:
+                # Есть резерв — синий
+                self.ax_gantt.barh(i, 1, left=asap_start, color="#0d6efd", edgecolor="#0b5ed7", height=0.6, zorder=3)
+                
+                # Резерв (заштрихованная область от ASAP до ALAP)
+                self.ax_gantt.barh(i, s, left=asap_start + 1, color="#e9ecef", edgecolor="#ced4da", 
+                                   height=0.6, zorder=2, hatch='//')
+
+        self.ax_gantt.set_yticks(y_positions)
+        self.ax_gantt.set_yticklabels(sorted_nodes)
+        self.ax_gantt.set_xlabel("Время (шаги)")
+
+        max_time = max(levels_alap.values()) + 1 if levels_alap else 10
+        self.ax_gantt.set_xlim(0, max_time + 1)
+        self.ax_gantt.set_xticks(range(max_time + 2))
+
+        self.ax_gantt.grid(axis='x', linestyle='--', alpha=0.7, zorder=1)
+        self.ax_gantt.spines['top'].set_visible(False)
+        self.ax_gantt.spines['right'].set_visible(False)
+
+        # Легенда (теперь в правом нижнем углу)
+        legend_elements = [
+            Patch(facecolor='#dc3545', edgecolor='#a71d2a', label='Критическая задача (ASAP)'),
+            Patch(facecolor='#0d6efd', edgecolor='#0b5ed7', label='Задача с резервом (ASAP)'),
+            Patch(facecolor='#e9ecef', edgecolor='#ced4da', hatch='//', label='Резерв до ALAP')
+        ]
+        self.ax_gantt.legend(handles=legend_elements, loc='lower right', fontsize=8, framealpha=0.9)
+
+        self.fig_gantt.tight_layout()
+        self.canvas_gantt.draw_idle()
 
     def update_table(self, schedule):
         for item in self.tree.get_children():

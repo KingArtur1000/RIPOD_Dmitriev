@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import random
 
 # ---------- Светлая цветовая схема ----------
 BG_MAIN   = "#f4f6f9"
@@ -27,6 +28,10 @@ class GraphCollapsingApp:
         self.default_edges = "1-5, 1-6, 2-6, 2-7, 3-7, 3-8, 4-8, 5-9, 6-9, 7-10, 8-10, 9-11, 10-11"
         
         self.processors = tk.IntVar(value=3)
+        
+        # Переменные для генератора
+        self.gen_nodes = tk.IntVar(value=12)
+        self.gen_density = tk.DoubleVar(value=0.2)
         
         self._build_style()
         self._build_ui()
@@ -121,9 +126,24 @@ class GraphCollapsingApp:
         self.edges_entry.bind("<Control-v>", lambda e: self.edges_entry.event_generate("<<Paste>>"))
         self.edges_entry.bind("<Command-v>", lambda e: self.edges_entry.event_generate("<<Paste>>"))
 
+        # --- Блок генератора ---
+        gen_frame = ttk.LabelFrame(parent, text=" Генератор случайного графа ", padding=10)
+        gen_frame.pack(fill="x", pady=5)
+        
+        g_row1 = ttk.Frame(gen_frame)
+        g_row1.pack(fill="x", pady=2)
+        ttk.Label(g_row1, text="Кол-во операций (N):").pack(side="left")
+        ttk.Spinbox(g_row1, from_=5, to=20, textvariable=self.gen_nodes, width=5).pack(side="right")
+        
+        g_row2 = ttk.Frame(gen_frame)
+        g_row2.pack(fill="x", pady=2)
+        ttk.Label(g_row2, text="Плотность связей:").pack(side="left")
+        ttk.Spinbox(g_row2, from_=0.1, to=0.8, increment=0.05, textvariable=self.gen_density, width=5).pack(side="right")
+
         btn_frame = ttk.Frame(input_frame)
         btn_frame.pack(fill="x", pady=(10, 0))
         ttk.Button(btn_frame, text="📋 Вставить", command=self.paste_from_clipboard).pack(side="left", padx=(0, 5))
+        ttk.Button(btn_frame, text="🎲 Сгенерировать", command=self.generate_random_graph).pack(side="left", padx=(0, 5))
         ttk.Button(btn_frame, text="Свернуть граф", command=self.update_collapse).pack(side="left", fill="x", expand=True)
 
         # Инфо
@@ -135,6 +155,35 @@ class GraphCollapsingApp:
                                  padx=8, pady=8, highlightthickness=1, highlightbackground=BORDER)
         self.info_text.pack(fill="both", expand=True)
         self.info_text.configure(state="disabled")
+
+    def generate_random_graph(self):
+        """Генерация случайного DAG для свертывания"""
+        n = self.gen_nodes.get()
+        density = self.gen_density.get()
+        
+        nodes = [str(i) for i in range(1, n + 1)]
+        edges = set()
+        
+        # Генерируем связи (i -> j, где i < j)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if random.random() < density:
+                    edges.add((nodes[i], nodes[j]))
+                    
+        # Защита от изолированных вершин
+        for i in range(1, n):
+            if not any(v == nodes[i] for u, v in edges) and not any(u == nodes[i] for u, v in edges):
+                parent = nodes[random.randint(0, i-1)]
+                edges.add((parent, nodes[i]))
+
+        # Формируем строку
+        edge_strs = [f"{u}-{v}" for u, v in edges]
+        edge_strs.sort(key=lambda x: (int(x.split('-')[0]), int(x.split('-')[1])))
+        
+        text = ", ".join(edge_strs)
+        self.edges_entry.delete("1.0", "end")
+        self.edges_entry.insert("1.0", text)
+        self.update_collapse()
 
     def paste_from_clipboard(self):
         try:
@@ -281,20 +330,14 @@ class GraphCollapsingApp:
         self.ax_col.clear()
         if not cG.nodes(): return
         
-        # --- ИСПРАВЛЕНИЕ БАГА ---
-        # В свернутом графе могут быть циклы (P1->P2 и P2->P1),
-        # поэтому используем круговую раскладку вместо топологической сортировки
         pos = nx.circular_layout(cG)
         
-        # Рисуем ребра (со скруглением, чтобы双向 связи не перекрывались)
         nx.draw_networkx_edges(cG, pos, ax=self.ax_col, edge_color="#6c757d", 
                                width=2, arrowsize=20, connectionstyle="arc3,rad=0.1")
         
-        # Рисуем узлы
         nx.draw_networkx_nodes(cG, pos, ax=self.ax_col, node_size=3500, 
                                node_color="#e3f2fd", edgecolors=ACCENT, linewidths=2)
         
-        # Рисуем подписи
         nx.draw_networkx_labels(cG, pos, ax=self.ax_col, labels=labels, 
                                 font_size=10, font_color="#000000", font_weight="bold")
 

@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import random
 
 # ---------- Светлая цветовая схема ----------
 BG_MAIN   = "#f4f6f9"
@@ -29,6 +30,10 @@ class EdgeZeroingApp:
         
         self.processors = tk.IntVar(value=3)
         self.comm_cost = tk.IntVar(value=2) # Базовая стоимость связи
+        
+        # Переменные для генератора
+        self.gen_nodes = tk.IntVar(value=9)
+        self.gen_density = tk.DoubleVar(value=0.25)
         
         self._build_style()
         self._build_ui()
@@ -118,9 +123,24 @@ class EdgeZeroingApp:
         self.edges_entry.bind("<Control-v>", lambda e: self.edges_entry.event_generate("<<Paste>>"))
         self.edges_entry.bind("<Command-v>", lambda e: self.edges_entry.event_generate("<<Paste>>"))
 
+        # --- Блок генератора ---
+        gen_frame = ttk.LabelFrame(parent, text=" Генератор случайного графа ", padding=10)
+        gen_frame.pack(fill="x", pady=5)
+        
+        g_row1 = ttk.Frame(gen_frame)
+        g_row1.pack(fill="x", pady=2)
+        ttk.Label(g_row1, text="Кол-во операций (N):").pack(side="left")
+        ttk.Spinbox(g_row1, from_=5, to=15, textvariable=self.gen_nodes, width=5).pack(side="right")
+        
+        g_row2 = ttk.Frame(gen_frame)
+        g_row2.pack(fill="x", pady=2)
+        ttk.Label(g_row2, text="Плотность связей:").pack(side="left")
+        ttk.Spinbox(g_row2, from_=0.1, to=0.6, increment=0.05, textvariable=self.gen_density, width=5).pack(side="right")
+
         btn_frame = ttk.Frame(input_frame)
         btn_frame.pack(fill="x", pady=(10, 0))
         ttk.Button(btn_frame, text="📋 Вставить", command=self.paste_from_clipboard).pack(side="left", padx=(0, 5))
+        ttk.Button(btn_frame, text="🎲 Сгенерировать", command=self.generate_random_graph).pack(side="left", padx=(0, 5))
         ttk.Button(btn_frame, text="Построить (ASAP)", command=self.update_schedule).pack(side="left", fill="x", expand=True)
         
         # Кнопка EZ
@@ -133,11 +153,46 @@ class EdgeZeroingApp:
         info_frame = ttk.LabelFrame(parent, text=" Анализ EZ ", padding=10)
         info_frame.pack(fill="both", expand=True, pady=(10, 0))
         
-        self.info_text = tk.Text(info_frame, height=10, bg=BG_MAIN, fg=FG_MAIN, bd=1, 
+        self.info_text = tk.Text(info_frame, height=8, bg=BG_MAIN, fg=FG_MAIN, bd=1, 
                                  relief="solid", font=("Consolas", 9), wrap="word", 
                                  padx=8, pady=8, highlightthickness=1, highlightbackground=BORDER)
         self.info_text.pack(fill="both", expand=True)
         self.info_text.configure(state="disabled")
+
+    def generate_random_graph(self):
+        """Генерация случайного DAG с весами дуг"""
+        n = self.gen_nodes.get()
+        density = self.gen_density.get()
+        
+        nodes = [str(i) for i in range(1, n + 1)]
+        edges = set()
+        
+        # Генерируем структуру (i -> j, где i < j)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if random.random() < density:
+                    edges.add((nodes[i], nodes[j]))
+                    
+        # Защита от изолированных вершин
+        for i in range(1, n):
+            if not any(v == nodes[i] for u, v in edges) and not any(u == nodes[i] for u, v in edges):
+                parent = nodes[random.randint(0, i-1)]
+                edges.add((parent, nodes[i]))
+
+        # Формируем строку с весами
+        edge_strs = []
+        for u, v in edges:
+            # Генерируем случайный вес от 1 до 4
+            w = random.randint(1, 4)
+            edge_strs.append(f"{u}-{v}:{w}")
+                
+        # Сортируем для красоты
+        edge_strs.sort(key=lambda x: (int(x.split('-')[0]), int(x.split('-')[1].split(':')[0])))
+        
+        text = ", ".join(edge_strs)
+        self.edges_entry.delete("1.0", "end")
+        self.edges_entry.insert("1.0", text)
+        self.update_schedule()
 
     def paste_from_clipboard(self):
         try:
