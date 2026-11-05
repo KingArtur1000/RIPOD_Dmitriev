@@ -26,7 +26,6 @@ class EdgeZeroingApp:
 
         self.G = nx.DiGraph()
         self.durations = {}
-        # Дефолтный граф с длинной цепочкой, чтобы показать каскад переносов
         self.default_edges = "1:2, 2:2, 1-3:3, 2-4:3, 3-5:3, 4-5:3, 5-6:3, 6-7:3, 7-8:3, 8-9:3"
         
         self.processors = tk.IntVar(value=3)
@@ -157,10 +156,16 @@ class EdgeZeroingApp:
         ez_anim_frame.pack(fill="x", pady=2)
         
         self.btn_ez_play = ttk.Button(ez_anim_frame, text="▶ Анимация EZ", command=self.toggle_ez_animation, state="disabled")
-        self.btn_ez_play.pack(side="left", fill="x", expand=True, padx=(0, 2))
+        self.btn_ez_play.pack(fill="x", pady=2)
         
-        self.btn_ez_step = ttk.Button(ez_anim_frame, text="⏭ Шаг", command=self.next_ez_step, state="disabled")
-        self.btn_ez_step.pack(side="left", fill="x", expand=True)
+        step_frame = ttk.Frame(ez_anim_frame)
+        step_frame.pack(fill="x", pady=2)
+        
+        self.btn_ez_prev = ttk.Button(step_frame, text="⏮ Назад", command=self.prev_ez_step, state="disabled")
+        self.btn_ez_prev.pack(side="left", fill="x", expand=True, padx=(0, 2))
+        
+        self.btn_ez_step = ttk.Button(step_frame, text="⏭ Шаг", command=self.next_ez_step, state="disabled")
+        self.btn_ez_step.pack(side="right", fill="x", expand=True, padx=(2, 0))
         
         self.lbl_ez_step = ttk.Label(ez_frame, text="Шаг: 0 / 0", font=("Consolas", 9))
         self.lbl_ez_step.pack(anchor="e", pady=(2, 0))
@@ -169,7 +174,7 @@ class EdgeZeroingApp:
         info_frame = ttk.LabelFrame(parent, text=" Анализ EZ ", padding=10)
         info_frame.pack(fill="both", expand=True, pady=(5, 0))
         
-        self.info_text = tk.Text(info_frame, height=8, bg=BG_MAIN, fg=FG_MAIN, bd=1, 
+        self.info_text = tk.Text(info_frame, height=6, bg=BG_MAIN, fg=FG_MAIN, bd=1, 
                                  relief="solid", font=("Consolas", 9), wrap="word", 
                                  padx=8, pady=8, highlightthickness=1, highlightbackground=BORDER)
         self.info_text.pack(fill="both", expand=True)
@@ -272,8 +277,10 @@ class EdgeZeroingApp:
         if self.ez_anim_job:
             self.root.after_cancel(self.ez_anim_job)
             self.ez_anim_job = None
+        
         self.btn_ez_play.configure(text="▶ Анимация EZ", state="disabled")
         self.btn_ez_step.configure(state="disabled")
+        self.btn_ez_prev.configure(state="disabled")
         self.lbl_ez_step.configure(text="Шаг: 0 / 0")
 
         if not self.parse_edges(): return
@@ -400,11 +407,11 @@ class EdgeZeroingApp:
         if len(self.ez_history) > 1:
             self.ez_anim_index = 0
             self.btn_ez_play.configure(state="normal")
-            self.btn_ez_step.configure(state="normal")
             self.show_ez_step()
         else:
             self.btn_ez_play.configure(state="disabled")
             self.btn_ez_step.configure(state="disabled")
+            self.btn_ez_prev.configure(state="disabled")
             self.calculate_and_draw(p, "После Edge Zeroing", "Улучшений не найдено. Граф уже оптимален.")
             self.lbl_ez_step.configure(text="Шаг: 0 / 0")
 
@@ -415,16 +422,38 @@ class EdgeZeroingApp:
         self.calculate_and_draw(self.processors.get(), f"Edge Zeroing (Шаг {self.ez_anim_index})", step_data["log"])
         self.lbl_ez_step.configure(text=f"Шаг: {self.ez_anim_index} / {len(self.ez_history)-1}")
 
-    def next_ez_step(self):
-        if self.ez_anim_index < len(self.ez_history) - 1:
-            self.ez_anim_index += 1
-            self.show_ez_step()
+        # Управление доступностью кнопок
+        if self.ez_anim_index > 0:
+            self.btn_ez_prev.configure(state="normal")
+        else:
+            self.btn_ez_prev.configure(state="disabled")
 
-    def toggle_ez_animation(self):
+        if self.ez_anim_index < len(self.ez_history) - 1:
+            self.btn_ez_step.configure(state="normal")
+        else:
+            self.btn_ez_step.configure(state="disabled")
+
+    def stop_ez_animation(self):
         if self.ez_anim_job:
             self.root.after_cancel(self.ez_anim_job)
             self.ez_anim_job = None
             self.btn_ez_play.configure(text="▶ Анимация EZ")
+
+    def next_ez_step(self):
+        self.stop_ez_animation()
+        if self.ez_anim_index < len(self.ez_history) - 1:
+            self.ez_anim_index += 1
+            self.show_ez_step()
+
+    def prev_ez_step(self):
+        self.stop_ez_animation()
+        if self.ez_anim_index > 0:
+            self.ez_anim_index -= 1
+            self.show_ez_step()
+
+    def toggle_ez_animation(self):
+        if self.ez_anim_job:
+            self.stop_ez_animation()
         else:
             if self.ez_anim_index >= len(self.ez_history) - 1:
                 self.ez_anim_index = 0
