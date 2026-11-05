@@ -25,8 +25,9 @@ class EdgeZeroingApp:
         root.configure(bg=BG_MAIN)
 
         self.G = nx.DiGraph()
-        # Дефолтный граф. Формат A-B:comm_time (по умолчанию comm=1)
-        self.default_edges = "1-4, 1-5, 2-5, 2-6, 3-6, 4-7:3, 5-8:2, 6-8:2, 7-9, 8-9"
+        self.durations = {} # Словарь для длительностей операций
+        # Дефолтный граф с длительностями (1:2 означает, что операция 1 длится 2 такта)
+        self.default_edges = "1:2, 1-4, 1-5, 2-5, 2-6, 3-6:2, 4-7:3, 5-8:2, 6-8:2, 7-9, 8-9"
         
         self.processors = tk.IntVar(value=3)
         self.comm_cost = tk.IntVar(value=2) # Базовая стоимость связи
@@ -79,7 +80,7 @@ class EdgeZeroingApp:
 
         self._build_controls(left)
         
-        graph_frame = ttk.LabelFrame(right, text=" Граф задач (с весами дуг) ", padding=5)
+        graph_frame = ttk.LabelFrame(right, text=" Граф задач (с весами дуг и длительностями) ", padding=5)
         graph_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         self._build_graph_area(graph_frame)
         
@@ -103,7 +104,7 @@ class EdgeZeroingApp:
         spin.bind("<<Decrement>>", lambda e: self.update_schedule())
         ttk.Button(proc_frame, text="Применить", command=self.update_schedule).pack(side="left", padx=10)
 
-        input_frame = ttk.LabelFrame(parent, text=" Входные данные (A-B или A-B:вес) ", padding=10)
+        input_frame = ttk.LabelFrame(parent, text=" Входные данные (A-B:вес или A:длит) ", padding=10)
         input_frame.pack(fill="x", pady=10)
         
         self.edges_entry = tk.Text(input_frame, height=4, width=30, font=("Consolas", 10), 
@@ -141,7 +142,7 @@ class EdgeZeroingApp:
         btn_frame.pack(fill="x", pady=(10, 0))
         ttk.Button(btn_frame, text="📋 Вставить", command=self.paste_from_clipboard).pack(side="left", padx=(0, 5))
         ttk.Button(btn_frame, text="🎲 Сгенерировать", command=self.generate_random_graph).pack(side="left", padx=(0, 5))
-        ttk.Button(btn_frame, text="Построить (ASAP)", command=self.update_schedule).pack(side="left", fill="x", expand=True)
+        ttk.Button(btn_frame, text="Построить (List Scheduling)", command=self.update_schedule).pack(side="left", fill="x", expand=True)
         
         # Кнопка EZ
         ez_frame = ttk.Frame(parent)
@@ -160,14 +161,22 @@ class EdgeZeroingApp:
         self.info_text.configure(state="disabled")
 
     def generate_random_graph(self):
-        """Генерация случайного DAG с весами дуг"""
+        """Генерация случайного DAG с весами дуг и длительностями операций"""
         n = self.gen_nodes.get()
         density = self.gen_density.get()
         
         nodes = [str(i) for i in range(1, n + 1)]
         edges = set()
+        durations = {}
         
-        # Генерируем структуру (i -> j, где i < j)
+        # Случайные длительности для операций
+        for node in nodes:
+            if random.random() < 0.25:
+                durations[node] = random.randint(2, 3)
+            else:
+                durations[node] = 1
+        
+        # Генерируем структуру
         for i in range(n):
             for j in range(i + 1, n):
                 if random.random() < density:
@@ -179,16 +188,18 @@ class EdgeZeroingApp:
                 parent = nodes[random.randint(0, i-1)]
                 edges.add((parent, nodes[i]))
 
-        # Формируем строку с весами
+        # Формируем строку
         edge_strs = []
+        # Сначала добавляем длительности (если > 1)
+        for node, dur in durations.items():
+            if dur > 1:
+                edge_strs.append(f"{node}:{dur}")
+                
+        # Потом сами связи с весами
         for u, v in edges:
-            # Генерируем случайный вес от 1 до 4
             w = random.randint(1, 4)
             edge_strs.append(f"{u}-{v}:{w}")
                 
-        # Сортируем для красоты
-        edge_strs.sort(key=lambda x: (int(x.split('-')[0]), int(x.split('-')[1].split(':')[0])))
-        
         text = ", ".join(edge_strs)
         self.edges_entry.delete("1.0", "end")
         self.edges_entry.insert("1.0", text)
@@ -220,23 +231,36 @@ class EdgeZeroingApp:
     def parse_edges(self):
         text = self.edges_entry.get("1.0", "end-1c")
         text = text.replace("\n", ",").replace(" ", "")
-        edges = []
+        self.G.clear()
+        self.durations = {}
+        
         for pair in text.split(","):
             if not pair: continue
             try:
-                if ":" in pair:
-                    edge_part, comm = pair.split(":")
-                    u, v = edge_part.split("-")
-                    self.G.add_edge(u.strip(), v.strip(), comm=int(comm))
-                else:
-                    u, v = pair.split("-")
-                    self.G.add_edge(u.strip(), v.strip(), comm=self.comm_cost.get())
+                if "-" in pair:
+                    # Обработка дуги (A-B или A-B:вес)
+                    if ":" in pair:
+                        edge_part, comm = pair.split(":")
+                        u, v = edge_part.split("-")
+                        self.G.add_edge(u.strip(), v.strip(), comm=int(comm))
+                    else:
+                        u, v = pair.split("-")
+                        self.G.add_edge(u.strip(), v.strip(), comm=self.comm_cost.get())
+                elif ":" in pair:
+                    # Обработка длительности вершины (A:длит)
+                    u, dur = pair.split(":")
+                    self.durations[u.strip()] = int(dur)
             except ValueError:
                 pass
+                
+        # Заполняем дефолтные длительности, если не заданы
+        for n in self.G.nodes():
+            if n not in self.durations:
+                self.durations[n] = 1
+                
         return list(self.G.edges())
 
     def update_schedule(self):
-        self.G.clear()
         if not self.parse_edges(): return
         
         if not nx.is_directed_acyclic_graph(self.G):
@@ -250,11 +274,11 @@ class EdgeZeroingApp:
         self.calculate_and_draw(p, "Исходный план (List Scheduling)")
 
     def list_scheduling(self, p):
-        # Простой List Scheduling для начального назначения
         priorities = {}
         for node in reversed(list(nx.topological_sort(self.G))):
             succs = list(self.G.successors(node))
-            priorities[node] = 1 if not succs else 1 + max(priorities[s] for s in succs)
+            w = self.durations.get(node, 1)
+            priorities[node] = w if not succs else w + max(priorities[s] for s in succs)
             
         assignment = {}
         proc_free = [0] * p
@@ -270,7 +294,7 @@ class EdgeZeroingApp:
                 if not ready: break
                 task = ready.pop(0)
                 assignment[task] = proc
-                # Грубая оценка для начального распределения
+                
                 preds = list(self.G.predecessors(task))
                 max_end = 0
                 for pr in preds:
@@ -279,12 +303,12 @@ class EdgeZeroingApp:
                     max_end = max(max_end, end)
                 
                 st = max(proc_free[proc], max_end)
-                proc_free[proc] = st + 1
+                proc_free[proc] = st + self.durations.get(task, 1)
                 scheduled.add(task)
         return assignment
 
     def calculate_schedule(self, assignment):
-        """Точный расчет времени с учетом коммуникаций"""
+        """Точный расчет времени с учетом коммуникаций и длительностей операций"""
         start_time = {}
         end_time = {}
         proc_free = {i: 0 for i in range(self.processors.get())}
@@ -299,51 +323,62 @@ class EdgeZeroingApp:
                 ready_time = max(ready_time, end_time[pr] + comm_delay)
                 
             st = ready_time
-            end_time[node] = st + 1 # Длительность задачи = 1
+            dur = self.durations.get(node, 1) # Учитываем длительность операции
+            end_time[node] = st + dur
             start_time[node] = st
             proc_free[proc] = end_time[node]
             
-        makespan = max(end_time.values())
+        makespan = max(end_time.values()) if end_time else 0
         return start_time, end_time, makespan
 
     def apply_ez(self):
-        """Алгоритм зануления дуг"""
+        """Алгоритм зануления дуг (каскадный перенос)"""
         p = self.processors.get()
         improved = True
         log = []
         
         _, _, current_makespan = self.calculate_schedule(self.assignment)
+        initial_makespan = current_makespan
         
         while improved:
             improved = False
             start_t, end_t, _ = self.calculate_schedule(self.assignment)
             
-            # Ищем задачу, которая завершается последней (критический путь)
-            last_task = max(end_t, key=end_t.get)
+            # Сортируем ВСЕ задачи по времени завершения (самые поздние - первыми)
+            sorted_tasks = sorted(end_t.keys(), key=lambda x: end_t[x], reverse=True)
             
-            # Смотрим на её предшественников, которые вызывают задержку
-            for pred in self.G.predecessors(last_task):
-                pred_proc = self.assignment[pred]
-                task_proc = self.assignment[last_task]
+            for task in sorted_tasks:
+                preds = list(self.G.predecessors(task))
                 
-                if pred_proc != task_proc:
-                    # Пробуем перенести задачу на процессор предшественника
-                    old_proc = self.assignment[last_task]
-                    self.assignment[last_task] = pred_proc
+                # Пробуем перенести задачу к любому из её предшественников
+                for pred in preds:
+                    pred_proc = self.assignment[pred]
+                    task_proc = self.assignment[task]
                     
-                    _, _, new_makespan = self.calculate_schedule(self.assignment)
-                    
-                    if new_makespan < current_makespan:
-                        log.append(f"Задача {last_task} перенесена с P{old_proc} на P{pred_proc} (занулена дуга {pred}->{last_task})")
-                        log.append(f"Время: {current_makespan} -> {new_makespan}")
-                        current_makespan = new_makespan
-                        improved = True
-                        break # Начинаем поиск заново с новым планом
-                    else:
-                        # Откат, если не помогло
-                        self.assignment[last_task] = old_proc
+                    if pred_proc != task_proc:
+                        old_proc = self.assignment[task]
+                        self.assignment[task] = pred_proc
                         
-        log_str = "\n".join(log) if log else "Улучшений не найдено. Граф уже оптимален."
+                        _, _, new_makespan = self.calculate_schedule(self.assignment)
+                        
+                        # Если время улучшилось (или осталось таким же, но задержка убрана)
+                        if new_makespan < current_makespan:
+                            log.append(f"Задача {task} перенесена с P{old_proc} на P{pred_proc} (занулена дуга {pred}->{task})")
+                            current_makespan = new_makespan
+                            improved = True
+                            break # Выходим из цикла предшественников
+                        else:
+                            self.assignment[task] = old_proc # Откат
+                            
+                if improved:
+                    break # Выходим из цикла задач, чтобы пересчитать расписание и начать заново
+                    
+        if log:
+            log.append(f"\nИтоговое время: {initial_makespan} -> {current_makespan}")
+            log_str = "\n".join(log)
+        else:
+            log_str = "Улучшений не найдено. Граф уже оптимален."
+            
         self.calculate_and_draw(p, "После Edge Zeroing", log_str)
 
     def calculate_and_draw(self, p, mode_text, log_text=""):
@@ -379,7 +414,14 @@ class EdgeZeroingApp:
         nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels, ax=self.ax_graph, font_size=9, font_color="#d63384")
         
         nx.draw_networkx_nodes(self.G, pos, ax=self.ax_graph, node_size=700, node_color=colors, edgecolors="#212529", linewidths=1.5)
-        nx.draw_networkx_labels(self.G, pos, ax=self.ax_graph, font_size=10, font_color="white", font_weight="bold")
+        
+        # Подписи узлов (добавляем длительность, если она больше 1)
+        labels = {}
+        for n in self.G.nodes():
+            dur = self.durations.get(n, 1)
+            labels[n] = f"{n}\n({dur})" if dur > 1 else str(n)
+            
+        nx.draw_networkx_labels(self.G, pos, ax=self.ax_graph, labels=labels, font_size=9, font_color="white", font_weight="bold")
 
         self.ax_graph.set_axis_off()
         self.ax_graph.margins(0.1)
@@ -398,10 +440,9 @@ class EdgeZeroingApp:
             self.ax_gantt.barh(proc, dur, left=start, height=0.6, color=color, edgecolor="#212529", linewidth=1, zorder=2)
             self.ax_gantt.text(start + dur/2, proc, str(task), ha="center", va="center", color="white", fontweight="bold", zorder=3)
             
-            # Визуализация задержек на передачу данных (стрелки между процессорами)
+            # Визуализация задержек на передачу данных
             for pr in self.G.predecessors(task):
                 if self.assignment[pr] != proc:
-                    comm_delay = self.G[pr][task]['comm']
                     # Рисуем пунктирную линию от конца предшественника до начала задачи
                     self.ax_gantt.plot([et[pr], st[task]], [self.assignment[pr], proc], 
                                        color="#d63384", linestyle="--", linewidth=1.5, alpha=0.7, zorder=1)
