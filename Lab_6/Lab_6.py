@@ -20,22 +20,26 @@ class EdgeZeroingApp:
     def __init__(self, root):
         self.root = root
         root.title("Лабораторная 6: Стратегия «Зануление дуг» (Edge Zeroing)")
-        self._center(1450, 950)
-        root.minsize(1100, 750)
+        self._center(1500, 950)
+        root.minsize(1150, 750)
         root.configure(bg=BG_MAIN)
 
         self.G = nx.DiGraph()
-        self.durations = {} # Словарь для длительностей операций
-        # Дефолтный граф с длительностями (1:2 означает, что операция 1 длится 2 такта)
-        self.default_edges = "1:2, 1-4, 1-5, 2-5, 2-6, 3-6:2, 4-7:3, 5-8:2, 6-8:2, 7-9, 8-9"
+        self.durations = {}
+        # Дефолтный граф с длинной цепочкой, чтобы показать каскад переносов
+        self.default_edges = "1:2, 2:2, 1-3:3, 2-4:3, 3-5:3, 4-5:3, 5-6:3, 6-7:3, 7-8:3, 8-9:3"
         
         self.processors = tk.IntVar(value=3)
-        self.comm_cost = tk.IntVar(value=2) # Базовая стоимость связи
+        self.comm_cost = tk.IntVar(value=2)
         
-        # Переменные для генератора
         self.gen_nodes = tk.IntVar(value=9)
         self.gen_density = tk.DoubleVar(value=0.25)
         
+        # Переменные для анимации EZ
+        self.ez_history = []
+        self.ez_anim_index = 0
+        self.ez_anim_job = None
+
         self._build_style()
         self._build_ui()
         self.update_schedule()
@@ -113,7 +117,6 @@ class EdgeZeroingApp:
         self.edges_entry.pack(fill="x")
         self.edges_entry.insert("1.0", self.default_edges)
         
-        # Контекстное меню и вставка
         self.context_menu = tk.Menu(self.edges_entry, tearoff=0)
         self.context_menu.add_command(label="Вставить", command=lambda: self.edges_entry.event_generate("<<Paste>>"))
         self.context_menu.add_command(label="Очистить", command=lambda: self.edges_entry.delete("1.0", "end"))
@@ -124,7 +127,6 @@ class EdgeZeroingApp:
         self.edges_entry.bind("<Control-v>", lambda e: self.edges_entry.event_generate("<<Paste>>"))
         self.edges_entry.bind("<Command-v>", lambda e: self.edges_entry.event_generate("<<Paste>>"))
 
-        # --- Блок генератора ---
         gen_frame = ttk.LabelFrame(parent, text=" Генератор случайного графа ", padding=10)
         gen_frame.pack(fill="x", pady=5)
         
@@ -144,15 +146,28 @@ class EdgeZeroingApp:
         ttk.Button(btn_frame, text="🎲 Сгенерировать", command=self.generate_random_graph).pack(side="left", padx=(0, 5))
         ttk.Button(btn_frame, text="Построить (List Scheduling)", command=self.update_schedule).pack(side="left", fill="x", expand=True)
         
-        # Кнопка EZ
-        ez_frame = ttk.Frame(parent)
-        ez_frame.pack(fill="x", pady=(5, 0))
-        self.btn_ez = ttk.Button(ez_frame, text="⚡ Применить Edge Zeroing", command=self.apply_ez)
-        self.btn_ez.pack(fill="x")
+        # --- Блок EZ и Анимации ---
+        ez_frame = ttk.LabelFrame(parent, text=" Оптимизация (Edge Zeroing) ", padding=10)
+        ez_frame.pack(fill="x", pady=5)
+        
+        self.btn_ez = ttk.Button(ez_frame, text="⚡ Рассчитать EZ", command=self.apply_ez)
+        self.btn_ez.pack(fill="x", pady=2)
+        
+        ez_anim_frame = ttk.Frame(ez_frame)
+        ez_anim_frame.pack(fill="x", pady=2)
+        
+        self.btn_ez_play = ttk.Button(ez_anim_frame, text="▶ Анимация EZ", command=self.toggle_ez_animation, state="disabled")
+        self.btn_ez_play.pack(side="left", fill="x", expand=True, padx=(0, 2))
+        
+        self.btn_ez_step = ttk.Button(ez_anim_frame, text="⏭ Шаг", command=self.next_ez_step, state="disabled")
+        self.btn_ez_step.pack(side="left", fill="x", expand=True)
+        
+        self.lbl_ez_step = ttk.Label(ez_frame, text="Шаг: 0 / 0", font=("Consolas", 9))
+        self.lbl_ez_step.pack(anchor="e", pady=(2, 0))
 
         # Инфо
         info_frame = ttk.LabelFrame(parent, text=" Анализ EZ ", padding=10)
-        info_frame.pack(fill="both", expand=True, pady=(10, 0))
+        info_frame.pack(fill="both", expand=True, pady=(5, 0))
         
         self.info_text = tk.Text(info_frame, height=8, bg=BG_MAIN, fg=FG_MAIN, bd=1, 
                                  relief="solid", font=("Consolas", 9), wrap="word", 
@@ -161,7 +176,6 @@ class EdgeZeroingApp:
         self.info_text.configure(state="disabled")
 
     def generate_random_graph(self):
-        """Генерация случайного DAG с весами дуг и длительностями операций"""
         n = self.gen_nodes.get()
         density = self.gen_density.get()
         
@@ -169,33 +183,27 @@ class EdgeZeroingApp:
         edges = set()
         durations = {}
         
-        # Случайные длительности для операций
         for node in nodes:
             if random.random() < 0.25:
                 durations[node] = random.randint(2, 3)
             else:
                 durations[node] = 1
         
-        # Генерируем структуру
         for i in range(n):
             for j in range(i + 1, n):
                 if random.random() < density:
                     edges.add((nodes[i], nodes[j]))
                     
-        # Защита от изолированных вершин
         for i in range(1, n):
             if not any(v == nodes[i] for u, v in edges) and not any(u == nodes[i] for u, v in edges):
                 parent = nodes[random.randint(0, i-1)]
                 edges.add((parent, nodes[i]))
 
-        # Формируем строку
         edge_strs = []
-        # Сначала добавляем длительности (если > 1)
         for node, dur in durations.items():
             if dur > 1:
                 edge_strs.append(f"{node}:{dur}")
                 
-        # Потом сами связи с весами
         for u, v in edges:
             w = random.randint(1, 4)
             edge_strs.append(f"{u}-{v}:{w}")
@@ -238,7 +246,6 @@ class EdgeZeroingApp:
             if not pair: continue
             try:
                 if "-" in pair:
-                    # Обработка дуги (A-B или A-B:вес)
                     if ":" in pair:
                         edge_part, comm = pair.split(":")
                         u, v = edge_part.split("-")
@@ -247,13 +254,11 @@ class EdgeZeroingApp:
                         u, v = pair.split("-")
                         self.G.add_edge(u.strip(), v.strip(), comm=self.comm_cost.get())
                 elif ":" in pair:
-                    # Обработка длительности вершины (A:длит)
                     u, dur = pair.split(":")
                     self.durations[u.strip()] = int(dur)
             except ValueError:
                 pass
                 
-        # Заполняем дефолтные длительности, если не заданы
         for n in self.G.nodes():
             if n not in self.durations:
                 self.durations[n] = 1
@@ -261,6 +266,16 @@ class EdgeZeroingApp:
         return list(self.G.edges())
 
     def update_schedule(self):
+        # Сброс анимации при построении нового графа
+        self.ez_history = []
+        self.ez_anim_index = 0
+        if self.ez_anim_job:
+            self.root.after_cancel(self.ez_anim_job)
+            self.ez_anim_job = None
+        self.btn_ez_play.configure(text="▶ Анимация EZ", state="disabled")
+        self.btn_ez_step.configure(state="disabled")
+        self.lbl_ez_step.configure(text="Шаг: 0 / 0")
+
         if not self.parse_edges(): return
         
         if not nx.is_directed_acyclic_graph(self.G):
@@ -268,8 +283,6 @@ class EdgeZeroingApp:
             return
 
         p = self.processors.get()
-        
-        # 1. Начальное распределение (List Scheduling)
         self.assignment = self.list_scheduling(p)
         self.calculate_and_draw(p, "Исходный план (List Scheduling)")
 
@@ -308,7 +321,6 @@ class EdgeZeroingApp:
         return assignment
 
     def calculate_schedule(self, assignment):
-        """Точный расчет времени с учетом коммуникаций и длительностей операций"""
         start_time = {}
         end_time = {}
         proc_free = {i: 0 for i in range(self.processors.get())}
@@ -323,7 +335,7 @@ class EdgeZeroingApp:
                 ready_time = max(ready_time, end_time[pr] + comm_delay)
                 
             st = ready_time
-            dur = self.durations.get(node, 1) # Учитываем длительность операции
+            dur = self.durations.get(node, 1)
             end_time[node] = st + dur
             start_time[node] = st
             proc_free[proc] = end_time[node]
@@ -332,54 +344,103 @@ class EdgeZeroingApp:
         return start_time, end_time, makespan
 
     def apply_ez(self):
-        """Алгоритм зануления дуг (каскадный перенос)"""
+        """Запуск алгоритма EZ с сохранением истории шагов"""
         p = self.processors.get()
         improved = True
-        log = []
         
-        _, _, current_makespan = self.calculate_schedule(self.assignment)
-        initial_makespan = current_makespan
+        current_assignment = self.assignment.copy()
+        _, _, current_makespan = self.calculate_schedule(current_assignment)
         
+        self.ez_history = []
+        log_messages = []
+        
+        self.ez_history.append({
+            "assignment": current_assignment.copy(),
+            "makespan": current_makespan,
+            "log": "Начальное состояние (до оптимизации)."
+        })
+
         while improved:
             improved = False
-            start_t, end_t, _ = self.calculate_schedule(self.assignment)
+            start_t, end_t, _ = self.calculate_schedule(current_assignment)
             
-            # Сортируем ВСЕ задачи по времени завершения (самые поздние - первыми)
             sorted_tasks = sorted(end_t.keys(), key=lambda x: end_t[x], reverse=True)
             
             for task in sorted_tasks:
                 preds = list(self.G.predecessors(task))
                 
-                # Пробуем перенести задачу к любому из её предшественников
                 for pred in preds:
-                    pred_proc = self.assignment[pred]
-                    task_proc = self.assignment[task]
+                    pred_proc = current_assignment[pred]
+                    task_proc = current_assignment[task]
                     
                     if pred_proc != task_proc:
-                        old_proc = self.assignment[task]
-                        self.assignment[task] = pred_proc
+                        old_proc = current_assignment[task]
+                        current_assignment[task] = pred_proc
                         
-                        _, _, new_makespan = self.calculate_schedule(self.assignment)
+                        _, _, new_makespan = self.calculate_schedule(current_assignment)
                         
-                        # Если время улучшилось (или осталось таким же, но задержка убрана)
                         if new_makespan < current_makespan:
-                            log.append(f"Задача {task} перенесена с P{old_proc} на P{pred_proc} (занулена дуга {pred}->{task})")
+                            log_messages.append(f"Задача {task} -> P{pred_proc} (занулена дуга {pred}->{task}). Время: {current_makespan} -> {new_makespan}")
                             current_makespan = new_makespan
+                            
+                            self.ez_history.append({
+                                "assignment": current_assignment.copy(),
+                                "makespan": current_makespan,
+                                "log": "\n".join(log_messages)
+                            })
+                            
                             improved = True
-                            break # Выходим из цикла предшественников
+                            break
                         else:
-                            self.assignment[task] = old_proc # Откат
+                            current_assignment[task] = old_proc
                             
                 if improved:
-                    break # Выходим из цикла задач, чтобы пересчитать расписание и начать заново
+                    break
                     
-        if log:
-            log.append(f"\nИтоговое время: {initial_makespan} -> {current_makespan}")
-            log_str = "\n".join(log)
+        if len(self.ez_history) > 1:
+            self.ez_anim_index = 0
+            self.btn_ez_play.configure(state="normal")
+            self.btn_ez_step.configure(state="normal")
+            self.show_ez_step()
         else:
-            log_str = "Улучшений не найдено. Граф уже оптимален."
+            self.btn_ez_play.configure(state="disabled")
+            self.btn_ez_step.configure(state="disabled")
+            self.calculate_and_draw(p, "После Edge Zeroing", "Улучшений не найдено. Граф уже оптимален.")
+            self.lbl_ez_step.configure(text="Шаг: 0 / 0")
+
+    def show_ez_step(self):
+        if not self.ez_history: return
+        step_data = self.ez_history[self.ez_anim_index]
+        self.assignment = step_data["assignment"]
+        self.calculate_and_draw(self.processors.get(), f"Edge Zeroing (Шаг {self.ez_anim_index})", step_data["log"])
+        self.lbl_ez_step.configure(text=f"Шаг: {self.ez_anim_index} / {len(self.ez_history)-1}")
+
+    def next_ez_step(self):
+        if self.ez_anim_index < len(self.ez_history) - 1:
+            self.ez_anim_index += 1
+            self.show_ez_step()
+
+    def toggle_ez_animation(self):
+        if self.ez_anim_job:
+            self.root.after_cancel(self.ez_anim_job)
+            self.ez_anim_job = None
+            self.btn_ez_play.configure(text="▶ Анимация EZ")
+        else:
+            if self.ez_anim_index >= len(self.ez_history) - 1:
+                self.ez_anim_index = 0
+                self.show_ez_step()
             
-        self.calculate_and_draw(p, "После Edge Zeroing", log_str)
+            self.btn_ez_play.configure(text="⏸ Пауза")
+            self.animate_ez()
+
+    def animate_ez(self):
+        if self.ez_anim_index < len(self.ez_history) - 1:
+            self.ez_anim_index += 1
+            self.show_ez_step()
+            self.ez_anim_job = self.root.after(1500, self.animate_ez)
+        else:
+            self.ez_anim_job = None
+            self.btn_ez_play.configure(text="▶ Анимация EZ")
 
     def calculate_and_draw(self, p, mode_text, log_text=""):
         st, et, makespan = self.calculate_schedule(self.assignment)
@@ -408,14 +469,12 @@ class EdgeZeroingApp:
         cmap = matplotlib.colormaps["tab10"]
         colors = [cmap(self.assignment[n] % 10) for n in self.G.nodes()]
         
-        # Рисуем дуги с подписями весов
         nx.draw_networkx_edges(self.G, pos, ax=self.ax_graph, edge_color="#adb5bd", width=2, arrowsize=15, connectionstyle="arc3,rad=0.1")
         edge_labels = {(u, v): self.G[u][v]['comm'] for u, v in self.G.edges()}
         nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels, ax=self.ax_graph, font_size=9, font_color="#d63384")
         
         nx.draw_networkx_nodes(self.G, pos, ax=self.ax_graph, node_size=700, node_color=colors, edgecolors="#212529", linewidths=1.5)
         
-        # Подписи узлов (добавляем длительность, если она больше 1)
         labels = {}
         for n in self.G.nodes():
             dur = self.durations.get(n, 1)
@@ -440,10 +499,8 @@ class EdgeZeroingApp:
             self.ax_gantt.barh(proc, dur, left=start, height=0.6, color=color, edgecolor="#212529", linewidth=1, zorder=2)
             self.ax_gantt.text(start + dur/2, proc, str(task), ha="center", va="center", color="white", fontweight="bold", zorder=3)
             
-            # Визуализация задержек на передачу данных
             for pr in self.G.predecessors(task):
                 if self.assignment[pr] != proc:
-                    # Рисуем пунктирную линию от конца предшественника до начала задачи
                     self.ax_gantt.plot([et[pr], st[task]], [self.assignment[pr], proc], 
                                        color="#d63384", linestyle="--", linewidth=1.5, alpha=0.7, zorder=1)
 
