@@ -37,6 +37,7 @@ class PlannerComponent:
         if not nx.is_directed_acyclic_graph(G):
             return {"error": "Граф содержит циклы!"}
 
+        # Алгоритм List Scheduling (скрыт от клиента)
         priorities = {}
         for node in reversed(list(nx.topological_sort(G))):
             succs = list(G.successors(node))
@@ -81,9 +82,7 @@ class PlannerComponent:
 def start_com_server():
     # Используем 127.0.0.1 вместо localhost для скорости
     server = xmlrpc.server.SimpleXMLRPCServer(("127.0.0.1", 8000), allow_none=True, logRequests=False)
-    # Включаем встроенные методы (listMethods)
     server.register_introspection_functions()
-    # Регистрируем наш компонент
     server.register_instance(PlannerComponent())
     print("COM-сервер запущен на порту 8000...")
     server.serve_forever()
@@ -95,8 +94,8 @@ class ClientApp:
     def __init__(self, root):
         self.root = root
         root.title("Лабораторная 8: Клиент-Сервер (COM архитектура)")
-        self._center(1400, 850)
-        root.minsize(1000, 650)
+        self._center(1500, 950) # Увеличили окно для нового блока
+        root.minsize(1100, 750)
         root.configure(bg=BG_MAIN)
 
         self.default_edges = "1-2, 1-3, 2-4, 3-4, 4-5, 3-6, 5-7, 6-7"
@@ -135,7 +134,7 @@ class ClientApp:
     def _build_ui(self):
         main = ttk.Frame(self.root, padding=15, style="Main.TFrame")
         main.pack(fill="both", expand=True)
-        main.columnconfigure(0, weight=0, minsize=400)
+        main.columnconfigure(0, weight=0, minsize=450)
         main.columnconfigure(1, weight=1)
         main.rowconfigure(0, weight=1)
 
@@ -151,6 +150,25 @@ class ClientApp:
     def _build_controls(self, parent):
         ttk.Label(parent, text="COM Клиент", style="Title.TLabel").pack(anchor="w")
         ttk.Label(parent, text="Удаленный вызов планировщика", style="Sub.TLabel").pack(anchor="w", pady=(0, 10))
+
+        # --- Блок с сутью лабы ---
+        theory_frame = ttk.LabelFrame(parent, text=" Суть лабораторной работы ", padding=10)
+        theory_frame.pack(fill="x", pady=5)
+        
+        theory_text = tk.Text(theory_frame, height=7, bg=BG_MAIN, fg=FG_MAIN, bd=1, 
+                              relief="solid", font=("Segoe UI", 9), wrap="word", 
+                              padx=5, pady=5, highlightthickness=0)
+        theory_text.pack(fill="x")
+        theory_text.insert("1.0", 
+            "Цель: реализовать задачу планирования по технологии СОМ (Component Object Model).\n\n"
+            "Архитектура 'Клиент-Сервер':\n"
+            "1. КОМПОНЕНТ (Сервер): Скрывает в себе сложный алгоритм (List Scheduling). "
+            "Он слушает порт 8000 и ничего не знает о том, как выглядит интерфейс.\n"
+            "2. КЛИЕНТ (это окно): Умеет только рисовать диаграммы и отправлять данные. "
+            "Как только вы нажимаете кнопку, клиент делает RPC-запрос по сети (через xmlrpc).\n\n"
+            "Плюс: мы можем переписать сервер на C++ или перенести на другой компьютер, "
+            "и клиент продолжит работать без изменений.")
+        theory_text.configure(state="disabled")
 
         self.conn_frame = ttk.Frame(parent)
         self.conn_frame.pack(fill="x", pady=5)
@@ -187,7 +205,7 @@ class ClientApp:
         log_frame = ttk.LabelFrame(parent, text=" Журнал интерфейса ", padding=10)
         log_frame.pack(fill="both", expand=True, pady=(10, 0))
         
-        self.log_text = tk.Text(log_frame, height=8, bg=BG_MAIN, fg=FG_MAIN, bd=1, 
+        self.log_text = tk.Text(log_frame, height=6, bg=BG_MAIN, fg=FG_MAIN, bd=1, 
                                  relief="solid", font=("Consolas", 9), wrap="word", 
                                  padx=8, pady=8, highlightthickness=1, highlightbackground=BORDER)
         self.log_text.pack(fill="both", expand=True)
@@ -202,11 +220,10 @@ class ClientApp:
 
     def check_connection(self):
         try:
-            # Вызываем наш собственный метод ping, а не system.listMethods
             response = self.proxy.ping()
             if response == "pong":
                 self.conn_lbl.configure(text=" Статус: Подключено (Порт 8000) ", bg="#198754", fg="#fff")
-        except Exception as e:
+        except Exception:
             self.conn_lbl.configure(text=" Статус: Нет связи с сервером ", bg="#dc3545", fg="#fff")
         self.root.after(2000, self.check_connection)
 
@@ -260,6 +277,7 @@ class ClientApp:
 
         time_scale = (w - 150) / max(makespan, 1)
 
+        # Сетка времени
         for i in range(int(makespan) + 2):
             x = 100 + i * time_scale
             self.canvas.create_line(x, 30, x, h-30, fill="#dee2e6", dash=(4, 4))
@@ -268,6 +286,7 @@ class ClientApp:
         y_offset = 50
         line_height = 50
 
+        # Отрисовка блоков задач
         for task, proc in assigned_proc.items():
             st = start_time[task]
             et = end_time[task]
@@ -281,14 +300,17 @@ class ClientApp:
             self.canvas.create_rectangle(x1, y, x2, y+30, fill=color, outline="white", width=2)
             self.canvas.create_text((x1+x2)/2, y+15, text=f"Оп. {task}", fill="white", font=("Segoe UI", 9, "bold"))
             
+        # Подписи процессоров
         for i in range(p):
             self.canvas.create_text(50, 50 + i * line_height + 15, text=f"Процессор {i}", fill=FG_MAIN, font=("Segoe UI", 9))
 
 if __name__ == "__main__":
+    # Запускаем сервер в фоновом потоке
     server_thread = threading.Thread(target=start_com_server, daemon=True)
     server_thread.start()
     time.sleep(0.5)
 
+    # Запускаем клиент
     root = tk.Tk()
     app = ClientApp(root)
     root.mainloop()
