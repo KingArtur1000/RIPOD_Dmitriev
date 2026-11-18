@@ -64,7 +64,7 @@ class PlannerComponent:
 
 def start_com_server():
     # Используем 127.0.0.1 вместо localhost для скорости
-    server = xmlrpc.server.SimpleXMLRPCServer(("127.0.0.1", 8000), allow_none=True, logRequests=False)
+    server = xmlrpc.server.SimpleXMLRPCServer(("0.0.0.0", 8000), allow_none=True, logRequests=False)
     server.register_introspection_functions()
     server.register_instance(PlannerComponent())
     print("="*50)
